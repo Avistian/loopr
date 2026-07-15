@@ -1,6 +1,6 @@
 # 08 — Agent-drivable CLI (`--json` + SKILL.md)
 
-Status: ready-for-agent
+Status: done
 
 ## What to build
 
