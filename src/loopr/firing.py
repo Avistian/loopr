@@ -96,8 +96,9 @@ def _spawn_and_capture(
             log_file.write("[loopr] provisioning failed; skipping firing\n")
         return STATUS_ERROR, None
 
+    # Command Loops carry their work in ``command``; agent Loops in ``mission``.
     invocation = adapter.build_invocation(
-        mission=loop.mission,
+        mission=loop.command or loop.mission,
         workspace=loop.workspace,
         result_path=result_path,
         model=loop.model,

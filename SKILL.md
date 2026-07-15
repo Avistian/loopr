@@ -32,12 +32,40 @@ loopr loop add --name model-monitor \
 Interval schedules also work: `--schedule "every 6h"`. Omit `--schedule` for a Loop that
 only runs when triggered by another Loop or manually.
 
+## Manage Loops
+
+```bash
+loopr loop disable <name>       # stop the daemon auto-firing it (manual runs still work)
+loopr loop enable <name>        # resume auto-scheduling
+loopr loop remove <name>        # delete it from loopr.yaml (refused if another Loop hands off to it)
+```
+
+`enabled: false` in `loopr.yaml` has the same effect as `disable`. After changing the
+schedule set, restart the daemon so it reloads: `systemctl --user restart loopr.service`.
+
+## Command Loops (run a script, not an agent)
+
+Set `agent: command` and `command` to schedule an ordinary command instead of an AI agent.
+The command is split with POSIX rules and run in the Workspace (no shell, so wrap
+pipes/redirects in a script). It receives `$LOOPR_RESULT_PATH` and may optionally write a
+Result there.
+
+```yaml
+loops:
+  - name: news-weekly
+    workspace: ./news
+    agent: command
+    command: .venv/bin/python main.py --days 7
+    schedule: "0 10 * * 0"
+```
+
 ## Inspect
 
 ```bash
-loopr loop list --json          # configured loops
+loopr loop list --json          # configured loops ([disabled] shown for paused ones)
 loopr runs --json               # past firings, newest first
 loopr show <run-id> --json      # one firing incl. Log and Result
+loopr logs <run-id> -f          # follow a Firing live (renders cursor stream-json events)
 loopr daemon status --json      # daemon health + next firings + active leases
 ```
 

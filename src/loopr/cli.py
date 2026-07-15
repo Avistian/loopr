@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -68,14 +69,74 @@ def _loop_to_dict(loop: Loop) -> dict:
     return {
         "name": loop.name,
         "agent": loop.agent,
+        "model": loop.model,
         "workspace": str(loop.workspace),
         "schedule": loop.schedule,
+        "enabled": loop.enabled,
         "mission": loop.mission,
+        "command": loop.command,
         "capabilities": [c.name for c in loop.capabilities],
         "handoffs": [
             {"when": h.when, "trigger": h.trigger, "notify": h.notify} for h in loop.handoffs
         ],
     }
+
+
+def _render_stream_line(line: str) -> Optional[str]:
+    """Render one cursor ``stream-json`` event as a human-readable line.
+
+    Non-JSON lines (loopr's own ``[loopr]`` notes, or plain text-format output) are
+    returned as-is, so this is safe to run over any Log. Events that carry no useful
+    signal (the echoed prompt, unknown types) return ``None`` and are dropped.
+    """
+    s = line.strip()
+    if not s:
+        return None
+    if not (s.startswith("{") and s.endswith("}")):
+        return s
+    try:
+        event = json.loads(s)
+    except json.JSONDecodeError:
+        return s
+    if not isinstance(event, dict):
+        return s
+
+    etype = event.get("type")
+    if etype == "system":
+        model = event.get("model")
+        return f"-- session started (model={model})" if model else "-- session started"
+    if etype == "result":
+        duration = event.get("duration_ms")
+        tag = "done" if not event.get("is_error") else "ERROR"
+        when = f" in {duration / 1000:.1f}s" if isinstance(duration, (int, float)) else ""
+        return f"-- {tag}{when}"
+    if etype in ("assistant", "user"):
+        message = event.get("message") or {}
+        pieces: list[str] = []
+        for item in message.get("content") or []:
+            if not isinstance(item, dict):
+                continue
+            kind = item.get("type")
+            if kind == "text" and etype == "assistant":
+                text = (item.get("text") or "").strip()
+                if text:
+                    pieces.append(f"[agent] {text}")
+            elif kind == "tool_use":
+                name = item.get("name", "tool")
+                pieces.append(f"[tool] {name}")
+            elif kind == "tool_result":
+                pieces.append("[tool result]")
+        return "\n".join(pieces) if pieces else None
+    return None
+
+
+def _run_finished(run_id: int) -> bool:
+    store = Store()
+    try:
+        record = store.get_run(run_id)
+        return bool(record and record.finished_at)
+    finally:
+        store.close()
 
 
 @app.command()
@@ -162,7 +223,76 @@ def show(
     if record.result_status:
         typer.echo(f"result: {record.result_status}  {record.result_summary or ''}".rstrip())
     typer.echo("-" * 40)
-    typer.echo(log if log else "(no log captured)")
+    if not log:
+        typer.echo("(no log captured)")
+        return
+    for line in log.splitlines():
+        rendered = _render_stream_line(line)
+        if rendered:
+            typer.echo(rendered)
+
+
+@app.command()
+def logs(
+    run_id: int = typer.Argument(..., help="Run id (see `loopr runs`)."),
+    follow: bool = typer.Option(
+        False, "--follow", "-f", help="Stream new activity until the Firing finishes."
+    ),
+    raw: bool = typer.Option(
+        False, "--raw", help="Print the raw Log without rendering stream-json events."
+    ),
+) -> None:
+    """Watch what an agent is doing during (or after) a Firing.
+
+    Renders cursor ``stream-json`` events (messages, tool calls) into readable lines.
+    With ``--follow`` it streams new events as they arrive and exits when the Firing
+    completes — useful for watching a scheduled or backgrounded run in real time.
+    """
+    store = Store()
+    try:
+        record = store.get_run(run_id)
+        if record is None:
+            _fail(f"no run with id {run_id}", code=2)
+        # During a live Firing the DB log_path is not set until completion; derive the
+        # deterministic path so `--follow` can attach to an in-progress run.
+        path = Path(record.log_path) if record.log_path else store.log_path_for(run_id)
+    finally:
+        store.close()
+
+    def emit(text: str) -> None:
+        out = text.rstrip("\n") if raw else _render_stream_line(text)
+        if out:
+            typer.echo(out)
+
+    if not follow:
+        if path.is_file():
+            for line in path.read_text(errors="replace").splitlines():
+                emit(line)
+        return
+
+    pos = 0
+    pending = b""
+    try:
+        while True:
+            finished = _run_finished(run_id)
+            if path.is_file():
+                with path.open("rb") as handle:
+                    handle.seek(pos)
+                    data = handle.read()
+                    pos = handle.tell()
+                if data:
+                    pending += data
+                    parts = pending.split(b"\n")
+                    pending = parts.pop()
+                    for chunk in parts:
+                        emit(chunk.decode("utf-8", "replace"))
+            if finished:
+                if pending.strip():
+                    emit(pending.decode("utf-8", "replace"))
+                break
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        pass
 
 
 @daemon_app.command("run")
@@ -280,7 +410,10 @@ def loop_list(
         return
     for loop in loops:
         sched = loop["schedule"] or "(triggered/manual)"
-        typer.echo(f"{loop['name']:<20} agent={loop['agent']:<8} schedule={sched}")
+        state = "" if loop["enabled"] else "  [disabled]"
+        typer.echo(
+            f"{loop['name']:<20} agent={loop['agent']:<8} schedule={sched}{state}"
+        )
 
 
 @loop_app.command("add")
@@ -328,6 +461,111 @@ def loop_add(
         typer.echo(json.dumps({"ok": True, "added": name}))
     else:
         typer.secho(f"added loop {name!r} to {path}", fg=typer.colors.GREEN)
+
+
+@loop_app.command("remove")
+def loop_remove(
+    name: str = typer.Argument(..., help="Loop to remove from loopr.yaml."),
+    config: Optional[Path] = typer.Option(
+        None, "--config", "-c", help="Path to loopr.yaml (default: search upward)."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON."),
+) -> None:
+    """Remove a Loop from loopr.yaml (fails if another Loop hands off to it)."""
+    try:
+        path = config if config is not None else find_config()
+    except ConfigError as exc:
+        _fail(str(exc), code=2, json_out=json_out)
+
+    raw = yaml.safe_load(path.read_text()) or {}
+    loops = raw.get("loops") if isinstance(raw, dict) else None
+    if not isinstance(loops, list):
+        _fail(f"{path}: 'loops' must be a list", code=2, json_out=json_out)
+
+    remaining = [l for l in loops if not (isinstance(l, dict) and l.get("name") == name)]
+    if len(remaining) == len(loops):
+        _fail(f"no loop named {name!r}", code=2, json_out=json_out)
+    raw["loops"] = remaining
+
+    original = path.read_text()
+    path.write_text(yaml.safe_dump(raw, sort_keys=False))
+    try:
+        load_config(path)
+    except ConfigError as exc:
+        path.write_text(original)
+        _fail(f"refused to remove {name!r}: {exc}", code=2, json_out=json_out)
+
+    if json_out:
+        typer.echo(json.dumps({"ok": True, "removed": name}))
+    else:
+        typer.secho(f"removed loop {name!r} from {path}", fg=typer.colors.YELLOW)
+    _note_restart_if_daemon()
+
+
+@loop_app.command("disable")
+def loop_disable(
+    name: str = typer.Argument(..., help="Loop to stop auto-scheduling."),
+    config: Optional[Path] = typer.Option(
+        None, "--config", "-c", help="Path to loopr.yaml (default: search upward)."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON."),
+) -> None:
+    """Disable a Loop's schedule (daemon skips it; manual runs still work)."""
+    _set_loop_enabled(name, False, config=config, json_out=json_out)
+
+
+@loop_app.command("enable")
+def loop_enable(
+    name: str = typer.Argument(..., help="Loop to resume auto-scheduling."),
+    config: Optional[Path] = typer.Option(
+        None, "--config", "-c", help="Path to loopr.yaml (default: search upward)."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON."),
+) -> None:
+    """Re-enable a Loop's schedule."""
+    _set_loop_enabled(name, True, config=config, json_out=json_out)
+
+
+def _set_loop_enabled(
+    name: str, enabled: bool, *, config: Optional[Path], json_out: bool
+) -> None:
+    try:
+        path = config if config is not None else find_config()
+    except ConfigError as exc:
+        _fail(str(exc), code=2, json_out=json_out)
+
+    raw = yaml.safe_load(path.read_text()) or {}
+    loops = raw.get("loops") if isinstance(raw, dict) else None
+    if not isinstance(loops, list):
+        _fail(f"{path}: 'loops' must be a list", code=2, json_out=json_out)
+
+    entry = next(
+        (l for l in loops if isinstance(l, dict) and l.get("name") == name), None
+    )
+    if entry is None:
+        _fail(f"no loop named {name!r}", code=2, json_out=json_out)
+
+    entry["enabled"] = enabled
+    path.write_text(yaml.safe_dump(raw, sort_keys=False))
+
+    verb = "enabled" if enabled else "disabled"
+    if json_out:
+        typer.echo(json.dumps({"ok": True, "loop": name, "enabled": enabled}))
+    else:
+        color = typer.colors.GREEN if enabled else typer.colors.YELLOW
+        typer.secho(f"{verb} loop {name!r}", fg=color)
+    if not enabled:
+        _note_restart_if_daemon()
+
+
+def _note_restart_if_daemon() -> None:
+    store = Store()
+    try:
+        running = is_running(store)
+    finally:
+        store.close()
+    if running:
+        typer.echo("note: restart the daemon to apply (`systemctl --user restart loopr.service`)")
 
 
 def _find() -> Path:

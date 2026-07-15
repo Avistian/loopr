@@ -8,6 +8,7 @@ by registering another builder here.
 from __future__ import annotations
 
 from .base import Adapter, AgentInvocation
+from .command import CommandAdapter
 from .cursor import CursorAdapter
 
 
@@ -17,6 +18,7 @@ class AdapterError(Exception):
 
 _BUILDERS: dict[str, type[Adapter]] = {
     CursorAdapter.name: CursorAdapter,
+    CommandAdapter.name: CommandAdapter,
 }
 
 
@@ -37,6 +39,7 @@ __all__ = [
     "Adapter",
     "AgentInvocation",
     "AdapterError",
+    "CommandAdapter",
     "CursorAdapter",
     "get_adapter",
     "known_agents",

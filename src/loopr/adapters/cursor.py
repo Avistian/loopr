@@ -16,9 +16,12 @@ class CursorAdapter:
     """Runs ``cursor-agent`` headlessly in the Workspace.
 
     Uses ``-p`` (print/non-interactive) and ``--force`` so the unattended agent may
-    write files and run shell commands (e.g. git push) without confirmation. The model
-    is pinned with ``--model`` when the Loop declares one. The binary is overridable via
-    $LOOPR_CURSOR_BIN so tests (and non-standard installs) can point elsewhere.
+    write files and run shell commands (e.g. git push) without confirmation. Output is
+    requested as ``stream-json`` so the Log captures the agent's activity (messages and
+    tool calls) as it happens, which lets ``loopr logs -f`` show a live view of a Firing.
+    The model is pinned with ``--model`` when the Loop declares one. The binary is
+    overridable via $LOOPR_CURSOR_BIN so tests (and non-standard installs) can point
+    elsewhere.
     """
 
     name = "cursor"
@@ -35,7 +38,7 @@ class CursorAdapter:
         model: str | None = None,
     ) -> AgentInvocation:
         prompt = mission + result_instruction(result_path)
-        argv = [self.binary, "-p", "--force"]
+        argv = [self.binary, "-p", "--force", "--output-format", "stream-json"]
         if model:
             argv += ["--model", model]
         argv.append(prompt)

@@ -306,6 +306,95 @@ def test_unknown_notify_channel_errors(tmp_path: Path):
         load_config(path)
 
 
+def test_enabled_defaults_true(tmp_path: Path):
+    path = write_config(
+        tmp_path,
+        """
+        loops:
+          - name: a
+            mission: m
+            workspace: .
+        """,
+    )
+    assert load_config(path).get_loop("a").enabled is True
+
+
+def test_enabled_false_parsed(tmp_path: Path):
+    path = write_config(
+        tmp_path,
+        """
+        loops:
+          - name: a
+            mission: m
+            workspace: .
+            enabled: false
+        """,
+    )
+    assert load_config(path).get_loop("a").enabled is False
+
+
+def test_enabled_must_be_bool(tmp_path: Path):
+    path = write_config(
+        tmp_path,
+        """
+        loops:
+          - name: a
+            mission: m
+            workspace: .
+            enabled: nope
+        """,
+    )
+    with pytest.raises(ConfigError, match="'enabled' must be true or false"):
+        load_config(path)
+
+
+def test_command_loop_parsed(tmp_path: Path):
+    path = write_config(
+        tmp_path,
+        """
+        loops:
+          - name: news
+            workspace: ./news
+            agent: command
+            command: .venv/bin/python main.py --days 7
+            schedule: "0 10 * * 0"
+        """,
+    )
+    loop = load_config(path).get_loop("news")
+    assert loop.agent == "command"
+    assert loop.command == ".venv/bin/python main.py --days 7"
+    assert loop.mission == ""
+
+
+def test_command_agent_requires_command(tmp_path: Path):
+    path = write_config(
+        tmp_path,
+        """
+        loops:
+          - name: news
+            workspace: .
+            agent: command
+        """,
+    )
+    with pytest.raises(ConfigError, match="agent 'command' requires a 'command'"):
+        load_config(path)
+
+
+def test_command_rejected_for_non_command_agent(tmp_path: Path):
+    path = write_config(
+        tmp_path,
+        """
+        loops:
+          - name: a
+            mission: m
+            workspace: .
+            command: echo hi
+        """,
+    )
+    with pytest.raises(ConfigError, match="only valid with agent: command"):
+        load_config(path)
+
+
 def test_missing_file_is_error(tmp_path: Path):
     with pytest.raises(ConfigError, match="not found"):
         load_config(tmp_path / "nope.yaml")

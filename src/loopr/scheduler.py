@@ -36,10 +36,12 @@ class Scheduler:
         self.runner: Runner = runner or (
             lambda loop, store: fire_with_handoffs(loop, self.config, store)
         )
+        # Only enabled Loops with a schedule are auto-fired; disabled Loops can still
+        # be run manually or via Handoff.
         self._schedules: dict[str, Schedule] = {
             loop.name: parse_schedule(loop.schedule)
             for loop in config.loops.values()
-            if loop.schedule
+            if loop.schedule and loop.enabled
         }
         self._next_fire: dict[str, datetime] = {}
 

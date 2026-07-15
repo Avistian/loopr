@@ -5,6 +5,7 @@ import pytest
 from loopr.adapters import (
     AdapterError,
     AgentInvocation,
+    CommandAdapter,
     CursorAdapter,
     get_adapter,
     known_agents,
@@ -23,6 +24,8 @@ def test_cursor_adapter_builds_invocation(tmp_path: Path):
     # headless + auto-approve so the unattended agent can write & run commands
     assert "-p" in inv.argv
     assert "--force" in inv.argv
+    # stream-json so the Log captures live activity for `loopr logs -f`
+    assert inv.argv[inv.argv.index("--output-format") + 1] == "stream-json"
     # last arg is the prompt: mission plus the result-protocol instruction
     assert inv.argv[-1].startswith("do the thing")
     assert str(result_path) in inv.argv[-1]
@@ -69,3 +72,32 @@ def test_get_unknown_adapter_raises():
 
 def test_known_agents_lists_cursor():
     assert "cursor" in known_agents()
+
+
+def test_command_adapter_splits_command(tmp_path: Path):
+    adapter = CommandAdapter()
+    inv = adapter.build_invocation(
+        mission=".venv/bin/python main.py --days 7",
+        workspace=tmp_path,
+        result_path=tmp_path / "r.json",
+    )
+    assert inv.argv == [".venv/bin/python", "main.py", "--days", "7"]
+    assert inv.cwd == tmp_path
+    assert inv.env is not None and inv.env["LOOPR_RESULT_PATH"] == str(tmp_path / "r.json")
+
+
+def test_command_adapter_rejects_empty(tmp_path: Path):
+    with pytest.raises(ValueError, match="empty command"):
+        CommandAdapter().build_invocation(
+            mission="   ", workspace=tmp_path, result_path=tmp_path / "r.json"
+        )
+
+
+def test_get_adapter_command_conforms_to_protocol():
+    adapter = get_adapter("command")
+    assert isinstance(adapter, Adapter)
+    assert adapter.name == "command"
+
+
+def test_known_agents_lists_command():
+    assert "command" in known_agents()

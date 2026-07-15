@@ -124,6 +124,86 @@ def test_loop_add_invalid_rolled_back(tmp_path: Path, monkeypatch):
     assert cfg.read_text() == before
 
 
+def test_loop_disable_then_enable(tmp_path: Path, monkeypatch):
+    apply_env(monkeypatch, tmp_path)
+    cfg = make_config(tmp_path)
+
+    disabled = runner.invoke(
+        app, ["loop", "disable", "mon", "--config", str(cfg), "--json"]
+    )
+    assert disabled.exit_code == 0, disabled.output
+    assert json.loads(disabled.output)["enabled"] is False
+
+    listed = runner.invoke(app, ["loop", "list", "--config", str(cfg), "--json"])
+    assert json.loads(listed.output)[0]["enabled"] is False
+
+    # disabled loops drop out of the daemon's next firings
+    status = runner.invoke(app, ["daemon", "status", "--config", str(cfg), "--json"])
+    assert "mon" not in json.loads(status.output)["next_firings"]
+
+    enabled = runner.invoke(
+        app, ["loop", "enable", "mon", "--config", str(cfg), "--json"]
+    )
+    assert json.loads(enabled.output)["enabled"] is True
+    status2 = runner.invoke(app, ["daemon", "status", "--config", str(cfg), "--json"])
+    assert "mon" in json.loads(status2.output)["next_firings"]
+
+
+def test_loop_disable_unknown_errors(tmp_path: Path, monkeypatch):
+    apply_env(monkeypatch, tmp_path)
+    cfg = make_config(tmp_path)
+    result = runner.invoke(
+        app, ["loop", "disable", "ghost", "--config", str(cfg), "--json"]
+    )
+    assert result.exit_code == 2
+    assert "no loop named" in json.loads(result.output)["error"]
+
+
+def test_loop_remove(tmp_path: Path, monkeypatch):
+    apply_env(monkeypatch, tmp_path)
+    cfg = make_config(tmp_path)
+    result = runner.invoke(app, ["loop", "remove", "mon", "--config", str(cfg), "--json"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["removed"] == "mon"
+
+    listed = runner.invoke(app, ["loop", "list", "--config", str(cfg), "--json"])
+    assert json.loads(listed.output) == []
+
+
+def test_loop_remove_unknown_errors(tmp_path: Path, monkeypatch):
+    apply_env(monkeypatch, tmp_path)
+    cfg = make_config(tmp_path)
+    result = runner.invoke(app, ["loop", "remove", "ghost", "--config", str(cfg), "--json"])
+    assert result.exit_code == 2
+    assert "no loop named" in json.loads(result.output)["error"]
+
+
+def test_loop_remove_refused_when_handoff_target(tmp_path: Path, monkeypatch):
+    apply_env(monkeypatch, tmp_path)
+    ws = tmp_path / "ws"
+    ws.mkdir(exist_ok=True)
+    cfg = tmp_path / "loopr.yaml"
+    cfg.write_text(
+        f"""
+loops:
+  - name: monitor
+    mission: check
+    workspace: {ws}
+    handoffs:
+      - trigger: fixer
+  - name: fixer
+    mission: fix
+    workspace: {ws}
+"""
+    )
+    before = cfg.read_text()
+    result = runner.invoke(app, ["loop", "remove", "fixer", "--config", str(cfg), "--json"])
+    assert result.exit_code == 2
+    assert "error" in json.loads(result.output)
+    # rolled back: fixer still present
+    assert cfg.read_text() == before
+
+
 def test_run_json(tmp_path: Path, monkeypatch):
     apply_env(monkeypatch, tmp_path)
     ws = tmp_path / "ws"

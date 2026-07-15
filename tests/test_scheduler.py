@@ -28,6 +28,20 @@ def test_only_scheduled_loops_tracked(tmp_path: Path):
         assert set(sched.next_fire_times()) == {"a"}
 
 
+def test_disabled_loop_not_scheduled(tmp_path: Path):
+    ws = tmp_path / "d"
+    ws.mkdir()
+    cfg = make_config(
+        tmp_path,
+        scheduled_loop(tmp_path, "on", "every 5m"),
+        Loop(name="off", mission="m", workspace=ws, schedule="every 5m", enabled=False),
+    )
+    with Store(tmp_path / "home") as store:
+        sched = Scheduler(cfg, store, runner=lambda loop, s: None)
+        sched.initialize(datetime(2026, 1, 1, 9, 0, 0))
+        assert set(sched.next_fire_times()) == {"on"}
+
+
 def test_tick_fires_when_due(tmp_path: Path):
     cfg = make_config(tmp_path, scheduled_loop(tmp_path, "a", "every 5m"))
     fired: list[str] = []

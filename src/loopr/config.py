@@ -66,15 +66,28 @@ class HandoffRule:
     notify: str | None = None
 
 
+COMMAND_AGENT = "command"
+
+
 @dataclass(frozen=True)
 class Loop:
-    """A reusable unit of agent work (see CONTEXT.md: Loop)."""
+    """A reusable unit of agent work (see CONTEXT.md: Loop).
+
+    Most Loops hand off to an AI agent (``agent``/``mission``/``model``). A Loop may
+    instead run a plain command by setting ``agent: command`` and ``command`` — Loopr
+    just executes the command line in the Workspace (useful for scheduling scripts).
+
+    ``enabled`` gates *scheduling* only: a disabled Loop is skipped by the daemon but
+    can still be fired manually (``loopr run``) or via a Handoff.
+    """
 
     name: str
     mission: str
     workspace: Path
     agent: str = DEFAULT_AGENT
     model: str | None = None
+    command: str | None = None
+    enabled: bool = True
     capabilities: tuple[Capability, ...] = ()
     schedule: str | None = None
     handoffs: tuple[HandoffRule, ...] = ()
@@ -158,10 +171,6 @@ def _parse_loop(entry: object, *, index: int, base: Path, source: Path) -> Loop:
     if not isinstance(name, str) or not name.strip():
         raise ConfigError(f"{where}: 'name' is required and must be a non-empty string")
 
-    mission = entry.get("mission")
-    if not isinstance(mission, str) or not mission.strip():
-        raise ConfigError(f"{where} ({name}): 'mission' is required and must be a non-empty string")
-
     workspace = entry.get("workspace")
     if not isinstance(workspace, str) or not workspace.strip():
         raise ConfigError(f"{where} ({name}): 'workspace' is required and must be a non-empty string")
@@ -170,9 +179,34 @@ def _parse_loop(entry: object, *, index: int, base: Path, source: Path) -> Loop:
     if not isinstance(agent, str) or not agent.strip():
         raise ConfigError(f"{where} ({name}): 'agent' must be a non-empty string")
 
+    command = entry.get("command")
+    if command is not None and (not isinstance(command, str) or not command.strip()):
+        raise ConfigError(f"{where} ({name}): 'command' must be a non-empty string")
+
+    mission = entry.get("mission")
+    if agent == COMMAND_AGENT:
+        if not command:
+            raise ConfigError(f"{where} ({name}): agent 'command' requires a 'command' string")
+        if mission is not None and not isinstance(mission, str):
+            raise ConfigError(f"{where} ({name}): 'mission' must be a string")
+        mission = mission or ""
+    else:
+        if command is not None:
+            raise ConfigError(
+                f"{where} ({name}): 'command' is only valid with agent: command"
+            )
+        if not isinstance(mission, str) or not mission.strip():
+            raise ConfigError(
+                f"{where} ({name}): 'mission' is required and must be a non-empty string"
+            )
+
     model = entry.get("model")
     if model is not None and (not isinstance(model, str) or not model.strip()):
         raise ConfigError(f"{where} ({name}): 'model' must be a non-empty string")
+
+    enabled = entry.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise ConfigError(f"{where} ({name}): 'enabled' must be true or false")
 
     workspace_path = Path(workspace)
     if not workspace_path.is_absolute():
@@ -209,6 +243,8 @@ def _parse_loop(entry: object, *, index: int, base: Path, source: Path) -> Loop:
         workspace=workspace_path,
         agent=agent,
         model=model,
+        command=command,
+        enabled=enabled,
         capabilities=capabilities,
         schedule=schedule,
         handoffs=handoffs,
