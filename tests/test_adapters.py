@@ -20,12 +20,31 @@ def test_cursor_adapter_builds_invocation(tmp_path: Path):
     )
     assert isinstance(inv, AgentInvocation)
     assert inv.argv[0] == "cursor-agent"
-    assert inv.argv[1] == "-p"
-    # prompt carries the mission plus the result-protocol instruction
-    assert inv.argv[2].startswith("do the thing")
-    assert str(result_path) in inv.argv[2]
+    # headless + auto-approve so the unattended agent can write & run commands
+    assert "-p" in inv.argv
+    assert "--force" in inv.argv
+    # last arg is the prompt: mission plus the result-protocol instruction
+    assert inv.argv[-1].startswith("do the thing")
+    assert str(result_path) in inv.argv[-1]
     assert inv.cwd == tmp_path
     assert inv.env is not None and inv.env["LOOPR_RESULT_PATH"] == str(result_path)
+
+
+def test_cursor_adapter_passes_model(tmp_path: Path):
+    adapter = CursorAdapter(binary="cursor-agent")
+    inv = adapter.build_invocation(
+        mission="m", workspace=tmp_path, result_path=tmp_path / "r.json", model="opus-4.8"
+    )
+    assert "--model" in inv.argv
+    assert inv.argv[inv.argv.index("--model") + 1] == "opus-4.8"
+
+
+def test_cursor_adapter_omits_model_when_none(tmp_path: Path):
+    adapter = CursorAdapter(binary="cursor-agent")
+    inv = adapter.build_invocation(
+        mission="m", workspace=tmp_path, result_path=tmp_path / "r.json"
+    )
+    assert "--model" not in inv.argv
 
 
 def test_cursor_binary_env_override(tmp_path: Path, monkeypatch):

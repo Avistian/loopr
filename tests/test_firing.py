@@ -16,7 +16,7 @@ class FakeAdapter:
         self._argv = argv
 
     def build_invocation(
-        self, *, mission: str, workspace: Path, result_path: Path
+        self, *, mission: str, workspace: Path, result_path: Path, model: str | None = None
     ) -> AgentInvocation:
         return AgentInvocation(argv=self._argv, cwd=Path(workspace))
 
@@ -31,7 +31,7 @@ class ResultAdapter:
         self._exit = exit_code
 
     def build_invocation(
-        self, *, mission: str, workspace: Path, result_path: Path
+        self, *, mission: str, workspace: Path, result_path: Path, model: str | None = None
     ) -> AgentInvocation:
         code = (
             "import json,sys;"

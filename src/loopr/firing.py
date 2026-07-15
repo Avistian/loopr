@@ -97,7 +97,10 @@ def _spawn_and_capture(
         return STATUS_ERROR, None
 
     invocation = adapter.build_invocation(
-        mission=loop.mission, workspace=loop.workspace, result_path=result_path
+        mission=loop.mission,
+        workspace=loop.workspace,
+        result_path=result_path,
+        model=loop.model,
     )
     env = {**os.environ, **(invocation.env or {})}
 

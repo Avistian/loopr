@@ -28,5 +28,10 @@ class Adapter(Protocol):
     name: str
 
     def build_invocation(
-        self, *, mission: str, workspace: Path, result_path: Path
+        self,
+        *,
+        mission: str,
+        workspace: Path,
+        result_path: Path,
+        model: str | None = None,
     ) -> AgentInvocation: ...

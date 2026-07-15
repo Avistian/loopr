@@ -74,6 +74,7 @@ class Loop:
     mission: str
     workspace: Path
     agent: str = DEFAULT_AGENT
+    model: str | None = None
     capabilities: tuple[Capability, ...] = ()
     schedule: str | None = None
     handoffs: tuple[HandoffRule, ...] = ()
@@ -169,6 +170,10 @@ def _parse_loop(entry: object, *, index: int, base: Path, source: Path) -> Loop:
     if not isinstance(agent, str) or not agent.strip():
         raise ConfigError(f"{where} ({name}): 'agent' must be a non-empty string")
 
+    model = entry.get("model")
+    if model is not None and (not isinstance(model, str) or not model.strip()):
+        raise ConfigError(f"{where} ({name}): 'model' must be a non-empty string")
+
     workspace_path = Path(workspace)
     if not workspace_path.is_absolute():
         workspace_path = (base / workspace_path).resolve()
@@ -203,6 +208,7 @@ def _parse_loop(entry: object, *, index: int, base: Path, source: Path) -> Loop:
         mission=mission,
         workspace=workspace_path,
         agent=agent,
+        model=model,
         capabilities=capabilities,
         schedule=schedule,
         handoffs=handoffs,

@@ -13,10 +13,12 @@ DEFAULT_CURSOR_BIN = "cursor-agent"
 
 
 class CursorAdapter:
-    """Runs ``cursor-agent -p <mission>`` in the Workspace.
+    """Runs ``cursor-agent`` headlessly in the Workspace.
 
-    The binary is overridable via $LOOPR_CURSOR_BIN so tests (and users with a
-    non-standard install) can point at a different executable.
+    Uses ``-p`` (print/non-interactive) and ``--force`` so the unattended agent may
+    write files and run shell commands (e.g. git push) without confirmation. The model
+    is pinned with ``--model`` when the Loop declares one. The binary is overridable via
+    $LOOPR_CURSOR_BIN so tests (and non-standard installs) can point elsewhere.
     """
 
     name = "cursor"
@@ -25,11 +27,20 @@ class CursorAdapter:
         self.binary = binary or os.environ.get(CURSOR_BIN_ENV, DEFAULT_CURSOR_BIN)
 
     def build_invocation(
-        self, *, mission: str, workspace: Path, result_path: Path
+        self,
+        *,
+        mission: str,
+        workspace: Path,
+        result_path: Path,
+        model: str | None = None,
     ) -> AgentInvocation:
         prompt = mission + result_instruction(result_path)
+        argv = [self.binary, "-p", "--force"]
+        if model:
+            argv += ["--model", model]
+        argv.append(prompt)
         return AgentInvocation(
-            argv=[self.binary, "-p", prompt],
+            argv=argv,
             cwd=Path(workspace),
             env={RESULT_PATH_ENV: str(result_path)},
         )
