@@ -275,6 +275,37 @@ def test_handoff_requires_trigger_or_notify(tmp_path: Path):
         load_config(path)
 
 
+def test_notify_handoff_parsed(tmp_path: Path):
+    path = write_config(
+        tmp_path,
+        """
+        loops:
+          - name: a
+            mission: m
+            workspace: .
+            handoffs:
+              - notify: cli
+        """,
+    )
+    assert load_config(path).get_loop("a").handoffs[0].notify == "cli"
+
+
+def test_unknown_notify_channel_errors(tmp_path: Path):
+    path = write_config(
+        tmp_path,
+        """
+        loops:
+          - name: a
+            mission: m
+            workspace: .
+            handoffs:
+              - notify: telegram
+        """,
+    )
+    with pytest.raises(ConfigError, match="unknown notify channel"):
+        load_config(path)
+
+
 def test_missing_file_is_error(tmp_path: Path):
     with pytest.raises(ConfigError, match="not found"):
         load_config(tmp_path / "nope.yaml")

@@ -1,6 +1,6 @@
 # 05 — Human Handoff (Notification)
 
-Status: ready-for-agent
+Status: done
 
 ## What to build
 

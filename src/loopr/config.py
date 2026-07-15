@@ -12,6 +12,7 @@ from pathlib import Path
 
 import yaml
 
+from .notify import known_channels
 from .predicate import PredicateError, compile_predicate
 from .schedule import ScheduleError, parse_schedule
 
@@ -217,8 +218,14 @@ def _parse_handoff(entry: object, *, where: str) -> HandoffRule:
 
     if trigger is not None and not isinstance(trigger, str):
         raise ConfigError(f"{where}: 'trigger' must be a string")
-    if notify is not None and not isinstance(notify, str):
-        raise ConfigError(f"{where}: 'notify' must be a string")
+    if notify is not None:
+        if not isinstance(notify, str):
+            raise ConfigError(f"{where}: 'notify' must be a string")
+        if notify not in known_channels():
+            known = ", ".join(known_channels())
+            raise ConfigError(
+                f"{where}: unknown notify channel {notify!r}; known channels: {known}"
+            )
     if trigger is None and notify is None:
         raise ConfigError(f"{where}: a handoff needs 'trigger' and/or 'notify'")
 

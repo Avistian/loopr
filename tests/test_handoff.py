@@ -118,6 +118,39 @@ def test_depth_limit_stops_chain(tmp_path: Path):
         assert runner.fired == ["a", "b"]
 
 
+def test_notify_handoff_invokes_notifier(tmp_path: Path):
+    with Store(tmp_path / "home") as store:
+        monitor = loop(
+            "monitor",
+            tmp_path,
+            handoffs=[HandoffRule(notify="cli", when='result.status == "issues"')],
+        )
+        cfg = config_of(tmp_path, monitor)
+        runner = RecordingRunner(store, {"monitor": Result(status="issues", summary="bad")})
+
+        captured = []
+        fire_with_handoffs(monitor, cfg, store, runner=runner, notifier=captured.append)
+
+        assert len(captured) == 1
+        assert captured[0].channel == "cli"
+        assert captured[0].source == "monitor"
+        assert captured[0].result.summary == "bad"
+
+
+def test_notify_skipped_when_predicate_false(tmp_path: Path):
+    with Store(tmp_path / "home") as store:
+        monitor = loop(
+            "monitor",
+            tmp_path,
+            handoffs=[HandoffRule(notify="cli", when='result.status == "issues"')],
+        )
+        cfg = config_of(tmp_path, monitor)
+        runner = RecordingRunner(store, {"monitor": Result(status="ok")})
+        captured = []
+        fire_with_handoffs(monitor, cfg, store, runner=runner, notifier=captured.append)
+        assert captured == []
+
+
 def test_process_handoffs_reports_events(tmp_path: Path):
     with Store(tmp_path / "home") as store:
         fixer = loop("fixer", tmp_path)

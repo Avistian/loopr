@@ -16,8 +16,12 @@ from typing import Callable
 from .config import Config, Loop
 from .db import RunRecord, Store
 from .firing import run_firing
+from .notify import Notification
+from .notify import deliver as deliver_notification
 from .predicate import evaluate_predicate
 from .result import Result, parse_result
+
+Notifier = Callable[[Notification], None]
 
 
 @dataclass(frozen=True)
@@ -40,7 +44,7 @@ def fire_with_handoffs(
     context: Result | None = None,
     context_source: str | None = None,
     runner: Runner = run_firing,
-    on_notify: Callable[[Loop, Result | None, "HandoffEvent"], None] | None = None,
+    notifier: Notifier = deliver_notification,
 ) -> RunRecord:
     """Fire ``loop`` then process its Handoffs recursively."""
     if chain is None:
@@ -57,8 +61,9 @@ def fire_with_handoffs(
         config,
         store,
         chain,
+        source_record=record,
         runner=runner,
-        on_notify=on_notify,
+        notifier=notifier,
     )
     return record
 
@@ -80,8 +85,9 @@ def process_handoffs(
     store: Store,
     chain: ChainContext,
     *,
+    source_record: RunRecord | None = None,
     runner: Runner = run_firing,
-    on_notify: Callable[[Loop, Result | None, HandoffEvent], None] | None = None,
+    notifier: Notifier | None = deliver_notification,
 ) -> list[HandoffEvent]:
     events: list[HandoffEvent] = []
     for rule in source.handoffs:
@@ -89,10 +95,18 @@ def process_handoffs(
             events.append(HandoffEvent(source.name, "skipped", rule.trigger or rule.notify))
             continue
 
-        if rule.notify is not None and on_notify is not None:
-            event = HandoffEvent(source.name, "notify", rule.notify)
-            on_notify(source, result, event)
-            events.append(event)
+        if rule.notify is not None and notifier is not None:
+            notifier(
+                Notification(
+                    source=source.name,
+                    channel=rule.notify,
+                    result=result,
+                    run_id=source_record.id if source_record else None,
+                    log_path=source_record.log_path if source_record else None,
+                    artifacts=list(result.artifacts) if result else [],
+                )
+            )
+            events.append(HandoffEvent(source.name, "notify", rule.notify))
 
         if rule.trigger is None:
             continue
@@ -125,7 +139,7 @@ def process_handoffs(
             context=result,
             context_source=source.name,
             runner=runner,
-            on_notify=on_notify,
+            notifier=notifier or deliver_notification,
         )
     return events
 
