@@ -1,6 +1,6 @@
 # 04 — Conditional loop→loop Handoff
 
-Status: ready-for-agent
+Status: done
 
 ## What to build
 

@@ -13,7 +13,7 @@ from typing import Callable
 
 from .config import Config, Loop
 from .db import Store
-from .firing import run_firing
+from .handoff import fire_with_handoffs
 from .schedule import Schedule, parse_schedule
 
 Runner = Callable[[Loop, Store], object]
@@ -27,12 +27,15 @@ class Scheduler:
         store: Store,
         *,
         now_fn: NowFn = datetime.now,
-        runner: Runner = run_firing,
+        runner: Runner | None = None,
     ):
         self.config = config
         self.store = store
         self.now_fn = now_fn
-        self.runner = runner
+        # By default a scheduled Firing runs the full Handoff chain.
+        self.runner: Runner = runner or (
+            lambda loop, store: fire_with_handoffs(loop, self.config, store)
+        )
         self._schedules: dict[str, Schedule] = {
             loop.name: parse_schedule(loop.schedule)
             for loop in config.loops.values()

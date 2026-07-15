@@ -205,6 +205,76 @@ def test_invalid_schedule_is_error(tmp_path: Path):
         load_config(path)
 
 
+def test_handoff_parsed(tmp_path: Path):
+    path = write_config(
+        tmp_path,
+        """
+        loops:
+          - name: monitor
+            mission: m
+            workspace: .
+            handoffs:
+              - when: 'result.status == "issues"'
+                trigger: fixer
+          - name: fixer
+            mission: fix
+            workspace: .
+        """,
+    )
+    monitor = load_config(path).get_loop("monitor")
+    assert monitor.handoffs[0].trigger == "fixer"
+    assert monitor.handoffs[0].when == 'result.status == "issues"'
+
+
+def test_handoff_unknown_target_errors(tmp_path: Path):
+    path = write_config(
+        tmp_path,
+        """
+        loops:
+          - name: a
+            mission: m
+            workspace: .
+            handoffs:
+              - trigger: ghost
+        """,
+    )
+    with pytest.raises(ConfigError, match="unknown loop 'ghost'"):
+        load_config(path)
+
+
+def test_handoff_invalid_predicate_errors(tmp_path: Path):
+    path = write_config(
+        tmp_path,
+        """
+        loops:
+          - name: a
+            mission: m
+            workspace: .
+            handoffs:
+              - when: 'evil()'
+                trigger: a
+        """,
+    )
+    with pytest.raises(ConfigError):
+        load_config(path)
+
+
+def test_handoff_requires_trigger_or_notify(tmp_path: Path):
+    path = write_config(
+        tmp_path,
+        """
+        loops:
+          - name: a
+            mission: m
+            workspace: .
+            handoffs:
+              - when: 'result.status == "x"'
+        """,
+    )
+    with pytest.raises(ConfigError, match="needs 'trigger' and/or 'notify'"):
+        load_config(path)
+
+
 def test_missing_file_is_error(tmp_path: Path):
     with pytest.raises(ConfigError, match="not found"):
         load_config(tmp_path / "nope.yaml")

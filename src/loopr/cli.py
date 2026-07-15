@@ -15,7 +15,7 @@ import typer
 from .config import ConfigError, Config, find_config, load_config
 from .daemon import is_running, read_pid, run_daemon
 from .db import RunRecord, Store
-from .firing import run_firing
+from .handoff import fire_with_handoffs
 from .scheduler import Scheduler
 from .units import install_unit
 
@@ -50,7 +50,7 @@ def run(
 
     store = Store()
     try:
-        record = run_firing(loop_def, store)
+        record = fire_with_handoffs(loop_def, cfg, store)
     finally:
         store.close()
 

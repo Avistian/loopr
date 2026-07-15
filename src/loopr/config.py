@@ -12,6 +12,7 @@ from pathlib import Path
 
 import yaml
 
+from .predicate import PredicateError, compile_predicate
 from .schedule import ScheduleError, parse_schedule
 
 DEFAULT_AGENT = "cursor"
@@ -48,6 +49,21 @@ class ToolCapability:
 
 Capability = SkillCapability | McpCapability | ToolCapability
 
+DEFAULT_MAX_CHAIN_DEPTH = 10
+
+
+@dataclass(frozen=True)
+class HandoffRule:
+    """A Handoff declaration: optionally conditional, targeting a Loop and/or a human.
+
+    ``when`` is a predicate over the structured Result (None = unconditional).
+    ``trigger`` names another Loop to fire. ``notify`` names a human channel (issue 05).
+    """
+
+    trigger: str | None = None
+    when: str | None = None
+    notify: str | None = None
+
 
 @dataclass(frozen=True)
 class Loop:
@@ -59,6 +75,7 @@ class Loop:
     agent: str = DEFAULT_AGENT
     capabilities: tuple[Capability, ...] = ()
     schedule: str | None = None
+    handoffs: tuple[HandoffRule, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -67,6 +84,7 @@ class Config:
 
     loops: dict[str, Loop]
     source: Path
+    max_chain_depth: int = DEFAULT_MAX_CHAIN_DEPTH
 
     def get_loop(self, name: str) -> Loop:
         try:
@@ -112,7 +130,21 @@ def load_config(path: Path) -> Config:
             raise ConfigError(f"{path}: duplicate loop name {loop.name!r}")
         loops[loop.name] = loop
 
-    return Config(loops=loops, source=path)
+    max_depth = raw.get("max_chain_depth", DEFAULT_MAX_CHAIN_DEPTH)
+    if not isinstance(max_depth, int) or max_depth < 1:
+        raise ConfigError(f"{path}: 'max_chain_depth' must be a positive integer")
+
+    _validate_handoff_targets(loops, path)
+    return Config(loops=loops, source=path, max_chain_depth=max_depth)
+
+
+def _validate_handoff_targets(loops: dict[str, Loop], path: Path) -> None:
+    for loop in loops.values():
+        for rule in loop.handoffs:
+            if rule.trigger is not None and rule.trigger not in loops:
+                raise ConfigError(
+                    f"{path}: loop {loop.name!r} hands off to unknown loop {rule.trigger!r}"
+                )
 
 
 def _parse_loop(entry: object, *, index: int, base: Path, source: Path) -> Loop:
@@ -157,6 +189,14 @@ def _parse_loop(entry: object, *, index: int, base: Path, source: Path) -> Loop:
         except ScheduleError as exc:
             raise ConfigError(f"{where} ({name}): {exc}") from exc
 
+    raw_handoffs = entry.get("handoffs", [])
+    if not isinstance(raw_handoffs, list):
+        raise ConfigError(f"{where} ({name}): 'handoffs' must be a list")
+    handoffs = tuple(
+        _parse_handoff(h, where=f"{where} ({name}) handoffs[{i}]")
+        for i, h in enumerate(raw_handoffs)
+    )
+
     return Loop(
         name=name,
         mission=mission,
@@ -164,7 +204,33 @@ def _parse_loop(entry: object, *, index: int, base: Path, source: Path) -> Loop:
         agent=agent,
         capabilities=capabilities,
         schedule=schedule,
+        handoffs=handoffs,
     )
+
+
+def _parse_handoff(entry: object, *, where: str) -> HandoffRule:
+    if not isinstance(entry, dict):
+        raise ConfigError(f"{where} must be a mapping")
+    trigger = entry.get("trigger")
+    notify = entry.get("notify")
+    when = entry.get("when")
+
+    if trigger is not None and not isinstance(trigger, str):
+        raise ConfigError(f"{where}: 'trigger' must be a string")
+    if notify is not None and not isinstance(notify, str):
+        raise ConfigError(f"{where}: 'notify' must be a string")
+    if trigger is None and notify is None:
+        raise ConfigError(f"{where}: a handoff needs 'trigger' and/or 'notify'")
+
+    if when is not None:
+        if not isinstance(when, str):
+            raise ConfigError(f"{where}: 'when' must be a string")
+        try:
+            compile_predicate(when)
+        except PredicateError as exc:
+            raise ConfigError(f"{where}: {exc}") from exc
+
+    return HandoffRule(trigger=trigger, when=when, notify=notify)
 
 
 def _parse_capability(entry: object, *, where: str, base: Path) -> Capability:

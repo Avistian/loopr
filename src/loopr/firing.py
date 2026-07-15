@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 from .adapters import Adapter, get_adapter
@@ -15,7 +16,7 @@ from .config import Loop
 from .db import STATUS_ERROR, STATUS_FAILED, STATUS_SUCCESS, RunRecord, Store
 from .lease import LeaseTimeout, workspace_lease
 from .provision import provision
-from .result import parse_result
+from .result import Result, parse_result
 
 
 def run_firing(
@@ -24,14 +25,19 @@ def run_firing(
     adapter: Adapter | None = None,
     *,
     lease_timeout: float | None = None,
+    context: Result | None = None,
+    context_source: str | None = None,
 ) -> RunRecord:
     """Execute one Firing of ``loop`` synchronously and return its run record.
 
     Holds the Workspace Lease for the duration of the Firing (issue 07), so concurrent
     Firings in the same Workspace are serialized. ``lease_timeout`` bounds the wait
-    (None = wait indefinitely).
+    (None = wait indefinitely). When ``context`` is given (a Handoff from an upstream
+    Loop), its summary is injected into the Mission.
     """
     adapter = adapter or get_adapter(loop.agent)
+    if context is not None:
+        loop = replace(loop, mission=_augment_mission(loop.mission, context, context_source))
     run_id = store.create_run(
         loop_name=loop.name,
         workspace=str(loop.workspace),
@@ -61,6 +67,15 @@ def run_firing(
     record = store.get_run(run_id)
     assert record is not None  # just created
     return record
+
+
+def _augment_mission(mission: str, context: Result, source: str | None) -> str:
+    header = f"## Context from upstream loop {source!r}" if source else "## Context from upstream loop"
+    return (
+        f"{mission}\n\n{header}\n"
+        f"status: {context.status}\n"
+        f"summary: {context.summary}\n"
+    )
 
 
 def _spawn_and_capture(
