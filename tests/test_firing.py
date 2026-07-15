@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 
 from loopr.adapters.base import AgentInvocation
-from loopr.config import Loop
+from loopr.config import Loop, SkillCapability, ToolCapability
 from loopr.db import STATUS_ERROR, STATUS_FAILED, STATUS_SUCCESS, Store
 from loopr.firing import run_firing
 
@@ -106,6 +106,44 @@ def test_absent_result_is_graceful(tmp_path: Path):
         record = run_firing(loop, store, adapter)
         assert record.status == STATUS_SUCCESS
         assert record.result_status is None
+
+
+def test_provisioning_failure_blocks_firing(tmp_path: Path):
+    loop = Loop(
+        name="t",
+        mission="m",
+        workspace=(tmp_path / "ws"),
+        agent="fake",
+        capabilities=(ToolCapability(name="definitely-not-a-real-binary-xyz"),),
+    )
+    (tmp_path / "ws").mkdir()
+    adapter = FakeAdapter(py("import sys; sys.exit(0)"))
+    with Store(tmp_path / "home") as store:
+        record = run_firing(loop, store, adapter)
+        assert record.status == STATUS_ERROR
+        log = Path(record.log_path).read_text()
+        assert "provisioning failed" in log
+
+
+def test_provisioning_preamble_in_log_on_success(tmp_path: Path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    src = tmp_path / "s.md"
+    src.write_text("# skill")
+    loop = Loop(
+        name="t",
+        mission="m",
+        workspace=ws,
+        agent="fake",
+        capabilities=(SkillCapability(name="triage", path=src),),
+    )
+    adapter = FakeAdapter(py("import sys; sys.stdout.write('RAN'); sys.exit(0)"))
+    with Store(tmp_path / "home") as store:
+        record = run_firing(loop, store, adapter)
+        assert record.status == STATUS_SUCCESS
+        log = Path(record.log_path).read_text()
+        assert "provisioning" in log
+        assert "RAN" in log
 
 
 def test_missing_workspace_is_error(tmp_path: Path):

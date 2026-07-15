@@ -1,6 +1,6 @@
 # 06 — Provisioning Capabilities before a Firing
 
-Status: ready-for-agent
+Status: done
 
 ## What to build
 

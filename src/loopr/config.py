@@ -21,6 +21,33 @@ class ConfigError(Exception):
 
 
 @dataclass(frozen=True)
+class SkillCapability:
+    """A reusable SKILL.md-style document to materialize into the Workspace."""
+
+    name: str
+    path: Path  # source SKILL.md
+
+
+@dataclass(frozen=True)
+class McpCapability:
+    """An MCP server entry to merge into the Workspace's MCP config."""
+
+    name: str
+    server: dict
+
+
+@dataclass(frozen=True)
+class ToolCapability:
+    """A tool/binary that must be on PATH (optionally installed via a command)."""
+
+    name: str
+    install: str | None = None
+
+
+Capability = SkillCapability | McpCapability | ToolCapability
+
+
+@dataclass(frozen=True)
 class Loop:
     """A reusable unit of agent work (see CONTEXT.md: Loop)."""
 
@@ -28,6 +55,7 @@ class Loop:
     mission: str
     workspace: Path
     agent: str = DEFAULT_AGENT
+    capabilities: tuple[Capability, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -109,4 +137,50 @@ def _parse_loop(entry: object, *, index: int, base: Path, source: Path) -> Loop:
     if not workspace_path.is_absolute():
         workspace_path = (base / workspace_path).resolve()
 
-    return Loop(name=name, mission=mission, workspace=workspace_path, agent=agent)
+    raw_caps = entry.get("capabilities", [])
+    if not isinstance(raw_caps, list):
+        raise ConfigError(f"{where} ({name}): 'capabilities' must be a list")
+    capabilities = tuple(
+        _parse_capability(cap, where=f"{where} ({name}) capabilities[{i}]", base=base)
+        for i, cap in enumerate(raw_caps)
+    )
+
+    return Loop(
+        name=name,
+        mission=mission,
+        workspace=workspace_path,
+        agent=agent,
+        capabilities=capabilities,
+    )
+
+
+def _parse_capability(entry: object, *, where: str, base: Path) -> Capability:
+    if not isinstance(entry, dict):
+        raise ConfigError(f"{where} must be a mapping")
+    kind = entry.get("type")
+    name = entry.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise ConfigError(f"{where}: 'name' is required")
+
+    if kind == "skill":
+        src = entry.get("path")
+        if not isinstance(src, str) or not src.strip():
+            raise ConfigError(f"{where} (skill {name}): 'path' is required")
+        src_path = Path(src)
+        if not src_path.is_absolute():
+            src_path = (base / src_path).resolve()
+        return SkillCapability(name=name, path=src_path)
+
+    if kind == "mcp":
+        server = entry.get("server")
+        if not isinstance(server, dict):
+            raise ConfigError(f"{where} (mcp {name}): 'server' mapping is required")
+        return McpCapability(name=name, server=server)
+
+    if kind == "tool":
+        install = entry.get("install")
+        if install is not None and not isinstance(install, str):
+            raise ConfigError(f"{where} (tool {name}): 'install' must be a string")
+        return ToolCapability(name=name, install=install)
+
+    raise ConfigError(f"{where}: unknown capability type {kind!r} (skill|mcp|tool)")

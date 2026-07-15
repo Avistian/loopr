@@ -2,7 +2,16 @@ from pathlib import Path
 
 import pytest
 
-from loopr.config import Config, ConfigError, Loop, find_config, load_config
+from loopr.config import (
+    Config,
+    ConfigError,
+    Loop,
+    McpCapability,
+    SkillCapability,
+    ToolCapability,
+    find_config,
+    load_config,
+)
 
 
 def write_config(tmp_path: Path, text: str) -> Path:
@@ -101,6 +110,70 @@ def test_unknown_loop_lists_known(tmp_path: Path):
     config = load_config(path)
     with pytest.raises(ConfigError, match="known"):
         config.get_loop("nope")
+
+
+def test_parse_capabilities(tmp_path: Path):
+    (tmp_path / "triage.md").write_text("# skill")
+    path = write_config(
+        tmp_path,
+        """
+        loops:
+          - name: a
+            mission: m
+            workspace: .
+            capabilities:
+              - type: skill
+                name: triage
+                path: ./triage.md
+              - type: mcp
+                name: dashboards
+                server:
+                  command: dash
+                  args: ["--serve"]
+              - type: tool
+                name: gh
+                install: "brew install gh"
+        """,
+    )
+    loop = load_config(path).get_loop("a")
+    assert len(loop.capabilities) == 3
+    skill, mcp, tool = loop.capabilities
+    assert isinstance(skill, SkillCapability)
+    assert skill.path == (tmp_path / "triage.md").resolve()
+    assert isinstance(mcp, McpCapability)
+    assert mcp.server["command"] == "dash"
+    assert isinstance(tool, ToolCapability)
+    assert tool.install == "brew install gh"
+
+
+def test_no_capabilities_defaults_empty(tmp_path: Path):
+    path = write_config(
+        tmp_path,
+        """
+        loops:
+          - name: a
+            mission: m
+            workspace: .
+        """,
+    )
+    assert load_config(path).get_loop("a").capabilities == ()
+
+
+def test_unknown_capability_type_errors(tmp_path: Path):
+    path = write_config(
+        tmp_path,
+        """
+        loops:
+          - name: a
+            mission: m
+            workspace: .
+            capabilities:
+              - type: bogus
+                name: x
+        """,
+    )
+    with pytest.raises(ConfigError, match="unknown capability type"):
+        load_config(path)
 
 
 def test_missing_file_is_error(tmp_path: Path):
