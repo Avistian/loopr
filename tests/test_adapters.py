@@ -24,6 +24,8 @@ def test_cursor_adapter_builds_invocation(tmp_path: Path):
     # headless + auto-approve so the unattended agent can write & run commands
     assert "-p" in inv.argv
     assert "--force" in inv.argv
+    # headless MCP use (a Loop can't answer an approval prompt)
+    assert "--approve-mcps" in inv.argv
     # stream-json so the Log captures live activity for `loopr logs -f`
     assert inv.argv[inv.argv.index("--output-format") + 1] == "stream-json"
     # last arg is the prompt: mission plus the result-protocol instruction

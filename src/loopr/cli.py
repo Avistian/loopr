@@ -82,6 +82,29 @@ def _loop_to_dict(loop: Loop) -> dict:
     }
 
 
+def _truncate(text: str, limit: int = 80) -> str:
+    text = " ".join(str(text).split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _render_tool_call(kind: str, body: dict) -> Optional[str]:
+    args = body.get("args") if isinstance(body.get("args"), dict) else {}
+    if kind == "mcpToolCall":
+        server = args.get("serverIdentifier") or args.get("providerIdentifier")
+        tool = args.get("toolName") or args.get("name")
+        label = f"{server}/{tool}" if server and tool else (tool or "mcp")
+        return f"[tool] mcp {label}"
+    if kind == "shellToolCall":
+        return f"[tool] shell: {_truncate(args.get('command', ''))}"
+    if kind in ("readToolCall", "writeToolCall", "editToolCall"):
+        verb = kind[: -len("ToolCall")]
+        path = args.get("path") or args.get("relativePath") or args.get("target") or ""
+        return f"[tool] {verb} {path}".rstrip()
+    if kind == "grepToolCall":
+        return f"[tool] grep {_truncate(args.get('pattern') or args.get('query') or '', 60)}".rstrip()
+    return f"[tool] {kind[: -len('ToolCall')] if kind.endswith('ToolCall') else kind}"
+
+
 def _render_stream_line(line: str) -> Optional[str]:
     """Render one cursor ``stream-json`` event as a human-readable line.
 
@@ -110,6 +133,16 @@ def _render_stream_line(line: str) -> Optional[str]:
         tag = "done" if not event.get("is_error") else "ERROR"
         when = f" in {duration / 1000:.1f}s" if isinstance(duration, (int, float)) else ""
         return f"-- {tag}{when}"
+    if etype == "tool_call":
+        # Render each tool once, when it starts. cursor nests the call under a single
+        # "<kind>ToolCall" key (shell/mcp/read/write/edit/grep/...).
+        if event.get("subtype") != "started":
+            return None
+        calls = event.get("tool_call")
+        if not isinstance(calls, dict) or not calls:
+            return None
+        kind, body = next(iter(calls.items()))
+        return _render_tool_call(kind, body if isinstance(body, dict) else {})
     if etype in ("assistant", "user"):
         message = event.get("message") or {}
         pieces: list[str] = []
