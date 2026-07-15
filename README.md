@@ -9,7 +9,9 @@ schedule, optionally hands each **Result** off to another Loop or to a human, an
 every run (raw **Log** + structured **Result**).
 
 See [`CONTEXT.md`](./CONTEXT.md) for the domain vocabulary, [`docs/adr/`](./docs/adr) for
-architecture decisions, and [`SKILL.md`](./SKILL.md) for driving Loopr from an agent.
+architecture decisions, [`SKILL.md`](./SKILL.md) for driving Loopr from an agent, and
+[Example: paper deep review](#example-paper-deep-review) for a full setup walkthrough with
+API keys, MCP, and a two-loop handoff chain.
 
 ## Concepts
 
@@ -38,7 +40,12 @@ Since v1:
   agent (e.g. a scheduled script).
 - **Loop lifecycle** — `enabled` flag plus `loopr loop enable` / `disable` / `remove`.
 
-## Install
+## Setup
+
+Loopr discovers `loopr.yaml` by searching upward from the current directory. Point it at
+a config explicitly with `--config /path/to/loopr.yaml` when needed.
+
+### Install Loopr and the Cursor agent
 
 For development, run against the source tree with [uv](https://docs.astral.sh/uv/):
 
@@ -55,12 +62,18 @@ uv tool install .
 uv tool install --reinstall .
 ```
 
-The Cursor adapter shells out to `cursor-agent`, which must be on `PATH` and authenticated
-(logged in, or `CURSOR_API_KEY` set) for the user the daemon runs as.
+Agent Loops (`agent: cursor`, the default) shell out to `cursor-agent`, which must be on
+`PATH` and authenticated for the user that runs the daemon. Verify your install and the
+model slug you pin in `loopr.yaml`:
 
-### Pinning your Cursor API key
+```bash
+cursor-agent --version
+cursor-agent --list-models
+```
 
-Create a key in the Cursor dashboard (**Settings → API Keys**, value looks like `crsr_...`).
+### Cursor API key
+
+Create a key in the Cursor dashboard (**Settings → API Keys**; value looks like `crsr_...`).
 
 For **manual / interactive** runs, export it in your shell (add to `~/.bashrc` to persist):
 
@@ -69,10 +82,11 @@ export CURSOR_API_KEY="crsr_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 ```
 
 For the **daemon**, a login shell's exports aren't visible, so pin the key on the service.
-With a systemd user unit, add a drop-in override (keeps the secret out of the unit file and
-out of git):
+Install the unit first, then add a drop-in override (keeps the secret out of the unit file
+and out of git):
 
 ```bash
+loopr daemon install
 systemctl --user edit loopr.service
 ```
 
@@ -81,16 +95,153 @@ systemctl --user edit loopr.service
 Environment=CURSOR_API_KEY=crsr_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-Then reload and restart:
+Then reload, enable, and start:
 
 ```bash
 systemctl --user daemon-reload
-systemctl --user restart loopr.service
+systemctl --user enable --now loopr.service
+loginctl enable-linger "$USER"   # keep daemon running after logout
 ```
 
 The override lives at `~/.config/systemd/user/loopr.service.d/override.conf` (mode `600`).
-Treat it like any other secret — never commit it. To let the daemon keep running after you
-log out, enable lingering once: `loginctl enable-linger "$USER"`.
+Treat it like any other secret — never commit it.
+
+### MCP servers
+
+`cursor-agent` reads MCP config from the user's global `~/.cursor/mcp.json`. Loopr can also
+**provision** MCP entries into a workspace's `.cursor/mcp.json` via `capabilities` (see
+[Capabilities](#capabilities)), but prefer the global file when the workspace is a git repo
+and you do not want a tracked MCP config committed.
+
+Example global entry for a local arXiv MCP (no API key required):
+
+```json
+{
+  "mcpServers": {
+    "arxiv-local": {
+      "command": "~/.local/bin/arxiv-mcp-server",
+      "args": []
+    }
+  }
+}
+```
+
+Install the binary:
+
+```bash
+uv tool install arxiv-mcp-server
+# symlink lands on ~/.local/bin/arxiv-mcp-server — ensure that is on PATH
+```
+
+### Git push (workspace repos)
+
+Loops that commit and push from their workspace need working `git` credentials for the
+daemon user (SSH agent, credential helper, or a deploy key). Loopr does not manage git
+auth.
+
+### Start the scheduler
+
+```bash
+loopr daemon run              # foreground (good for debugging)
+loopr daemon status           # health + next firings + active leases
+loopr daemon install          # systemd/launchd autostart unit
+```
+
+After editing schedules or adding Loops, restart the daemon so it reloads
+(`systemctl --user restart loopr.service` for a systemd install).
+
+## Capabilities
+
+Declare what a Loop needs under `capabilities:` in `loopr.yaml`. Provisioning runs before
+every Firing and is idempotent (no-op when already present).
+
+```yaml
+capabilities:
+  - type: skill
+    name: teach
+    path: .agents/skills/teach/SKILL.md   # → <workspace>/.cursor/skills/teach/SKILL.md
+  - type: mcp
+    name: dashboards
+    server: { command: dashboards-mcp }     # merged into <workspace>/.cursor/mcp.json
+  - type: tool
+    name: gh                                # must be on PATH; optional install: "brew install gh"
+```
+
+| Kind | What provisioning does | When to use |
+| --- | --- | --- |
+| **skill** | Copies `path` → `<workspace>/.cursor/skills/<name>/SKILL.md` | Reusable workflow docs referenced from the mission |
+| **mcp** | Merges `server` into `<workspace>/.cursor/mcp.json` | Self-contained workspace; no global MCP setup |
+| **tool** | Verifies binary on PATH; runs `install` if missing | `git`, `gh`, custom CLIs the mission shells out to |
+
+**Global MCP vs capability:** if the MCP is already in `~/.cursor/mcp.json` and the
+workspace should not get a committed `.cursor/mcp.json`, omit the capability and reference
+the server by name in the mission instead.
+
+## Example: paper deep review
+
+The parent monorepo's [`loopr.yaml`](../loopr.yaml) wires a two-loop chain for curating ML
+papers in `./relational`:
+
+| Loop | Schedule | Role |
+| --- | --- | --- |
+| `tabular-paper-radar` | `0 9 * * 0` (Sun 09:00) | Search arXiv, append new papers to `CURRICULUM_STAGE.md`, commit+push |
+| `paper-deep-review` | none (handoff only) | Write `reviews/<arxiv_id>.md` for every staged but un-reviewed paper, commit+push |
+
+When the radar returns `{"status":"staged",...}`, Loopr automatically fires
+`paper-deep-review` with that Result as context. Both Loops share workspace `./relational`,
+so the per-workspace **Lease** serializes them.
+
+### What is configured for these Loops
+
+| Requirement | How it is set up |
+| --- | --- |
+| **API key** | `CURSOR_API_KEY` (`crsr_...`) for `cursor-agent` — see [Cursor API key](#cursor-api-key) |
+| **Agent** | `agent: cursor`, `model: claude-opus-4-8-thinking-high` |
+| **MCP** | Global `arxiv-local` in `~/.cursor/mcp.json` — **not** a `capabilities` entry |
+| **Skills** | None — the mission text is self-contained (no SKILL.md provisioned) |
+| **Tools** | `cursor-agent`, `arxiv-mcp-server`, `git` on PATH; git remote auth for push |
+| **Workspace** | `./relational` (git repo with `CURRICULUM_STAGE.md` and `reviews/`) |
+
+The paper Loops use these `arxiv-local` tools: `search_papers`, `get_abstract`,
+`download_paper`, `read_paper`.
+
+### Run deep review manually
+
+From the directory that contains `loopr.yaml` (the monorepo root):
+
+```bash
+export CURSOR_API_KEY="crsr_..."    # if not already in the environment
+loopr run paper-deep-review
+```
+
+The Loop is idempotent: it only writes reviews for staged papers that lack
+`reviews/<arxiv_id>.md`. If nothing is pending it exits with
+`{"status":"none","summary":"nothing to review"}` and makes no file changes.
+
+### Run the full chain (radar → deep review)
+
+```bash
+loopr run tabular-paper-radar
+# if new papers were staged, paper-deep-review fires automatically
+```
+
+### Inspect a firing
+
+```bash
+loopr runs                          # find the run id
+loopr logs <run-id> -f              # follow live (stream-json from cursor-agent)
+loopr show <run-id>                 # Log + parsed Result after completion
+```
+
+Expected Result shapes:
+
+```json
+{"status":"ok","summary":"Reviewed 2 paper(s): 2607.05476, 2607.05380","artifacts":[{"type":"file","url":"reviews/"}]}
+{"status":"none","summary":"nothing to review"}
+{"status":"issues","summary":"arxiv-local MCP error: ..."}
+```
+
+On `status: ok` or `status: issues`, a CLI notification is emitted (human handoff).
 
 ## Example `loopr.yaml`
 
