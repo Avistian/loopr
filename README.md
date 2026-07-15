@@ -58,6 +58,40 @@ uv tool install --reinstall .
 The Cursor adapter shells out to `cursor-agent`, which must be on `PATH` and authenticated
 (logged in, or `CURSOR_API_KEY` set) for the user the daemon runs as.
 
+### Pinning your Cursor API key
+
+Create a key in the Cursor dashboard (**Settings → API Keys**, value looks like `crsr_...`).
+
+For **manual / interactive** runs, export it in your shell (add to `~/.bashrc` to persist):
+
+```bash
+export CURSOR_API_KEY="crsr_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+```
+
+For the **daemon**, a login shell's exports aren't visible, so pin the key on the service.
+With a systemd user unit, add a drop-in override (keeps the secret out of the unit file and
+out of git):
+
+```bash
+systemctl --user edit loopr.service
+```
+
+```ini
+[Service]
+Environment=CURSOR_API_KEY=crsr_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+Then reload and restart:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user restart loopr.service
+```
+
+The override lives at `~/.config/systemd/user/loopr.service.d/override.conf` (mode `600`).
+Treat it like any other secret — never commit it. To let the daemon keep running after you
+log out, enable lingering once: `loginctl enable-linger "$USER"`.
+
 ## Example `loopr.yaml`
 
 ```yaml
