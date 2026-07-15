@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .result import Result
+from .util import pid_alive
 
 # Firing status values.
 STATUS_RUNNING = "running"
@@ -33,6 +34,13 @@ CREATE TABLE IF NOT EXISTS runs (
     started_at   TEXT NOT NULL,
     finished_at  TEXT,
     log_path     TEXT
+);
+
+CREATE TABLE IF NOT EXISTS leases (
+    workspace    TEXT PRIMARY KEY,
+    run_id       INTEGER NOT NULL,
+    pid          INTEGER NOT NULL,
+    acquired_at  TEXT NOT NULL
 );
 """
 
@@ -57,6 +65,14 @@ def resolve_home(explicit: Path | str | None = None) -> Path:
     if env:
         return Path(env)
     return Path.home() / ".loopr"
+
+
+@dataclass(frozen=True)
+class LeaseRecord:
+    workspace: str
+    run_id: int
+    pid: int
+    acquired_at: str
 
 
 @dataclass(frozen=True)
@@ -152,6 +168,60 @@ class Store:
             ),
         )
         self._conn.commit()
+
+    def try_acquire_lease(self, workspace: str, run_id: int, pid: int) -> bool:
+        """Grab the Workspace Lease, stealing it if the holder process is dead.
+
+        Returns False only when a *live* different holder already owns it.
+        """
+        try:
+            self._conn.execute(
+                "INSERT INTO leases (workspace, run_id, pid, acquired_at) "
+                "VALUES (?, ?, ?, ?)",
+                (workspace, run_id, pid, now_iso()),
+            )
+            self._conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            pass
+
+        row = self._conn.execute(
+            "SELECT run_id, pid FROM leases WHERE workspace = ?", (workspace,)
+        ).fetchone()
+        if row is None:  # released between INSERT and SELECT; retry
+            return self.try_acquire_lease(workspace, run_id, pid)
+        if row["run_id"] == run_id:
+            return True  # reentrant
+        if pid_alive(row["pid"]):
+            return False
+        # stale holder: steal it
+        self._conn.execute(
+            "UPDATE leases SET run_id = ?, pid = ?, acquired_at = ? WHERE workspace = ?",
+            (run_id, pid, now_iso(), workspace),
+        )
+        self._conn.commit()
+        return True
+
+    def release_lease(self, workspace: str, run_id: int) -> bool:
+        cur = self._conn.execute(
+            "DELETE FROM leases WHERE workspace = ? AND run_id = ?", (workspace, run_id)
+        )
+        self._conn.commit()
+        return cur.rowcount > 0
+
+    def active_leases(self) -> list[LeaseRecord]:
+        rows = self._conn.execute(
+            "SELECT * FROM leases ORDER BY workspace"
+        ).fetchall()
+        return [
+            LeaseRecord(
+                workspace=r["workspace"],
+                run_id=r["run_id"],
+                pid=r["pid"],
+                acquired_at=r["acquired_at"],
+            )
+            for r in rows
+        ]
 
     def get_run(self, run_id: int) -> RunRecord | None:
         row = self._conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()

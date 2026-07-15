@@ -1,6 +1,6 @@
 # 07 — Per-Workspace Lease serialization
 
-Status: ready-for-agent
+Status: done
 
 ## What to build
 

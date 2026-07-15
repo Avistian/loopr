@@ -152,6 +152,12 @@ def daemon_status(
         else:
             typer.secho("daemon: not running", fg=typer.colors.YELLOW)
 
+        leases = store.active_leases()
+        if leases:
+            typer.echo("active firings (workspace leases):")
+            for lease in leases:
+                typer.echo(f"  {lease.workspace}  run={lease.run_id} pid={lease.pid}")
+
         try:
             cfg = load_config(config if config is not None else _find())
         except ConfigError:

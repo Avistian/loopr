@@ -12,6 +12,7 @@ from pathlib import Path
 from .config import Config
 from .db import Store
 from .scheduler import Scheduler
+from .util import pid_alive
 
 
 def pid_file(store: Store) -> Path:
@@ -32,17 +33,7 @@ def is_running(store: Store) -> bool:
     pid = read_pid(store)
     if pid is None:
         return False
-    return _pid_alive(pid)
-
-
-def _pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+    return pid_alive(pid)
 
 
 def run_daemon(config: Config, store: Store, *, poll_seconds: float = 1.0) -> None:

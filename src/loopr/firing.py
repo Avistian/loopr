@@ -13,12 +13,24 @@ from pathlib import Path
 from .adapters import Adapter, get_adapter
 from .config import Loop
 from .db import STATUS_ERROR, STATUS_FAILED, STATUS_SUCCESS, RunRecord, Store
+from .lease import LeaseTimeout, workspace_lease
 from .provision import provision
 from .result import parse_result
 
 
-def run_firing(loop: Loop, store: Store, adapter: Adapter | None = None) -> RunRecord:
-    """Execute one Firing of ``loop`` synchronously and return its run record."""
+def run_firing(
+    loop: Loop,
+    store: Store,
+    adapter: Adapter | None = None,
+    *,
+    lease_timeout: float | None = None,
+) -> RunRecord:
+    """Execute one Firing of ``loop`` synchronously and return its run record.
+
+    Holds the Workspace Lease for the duration of the Firing (issue 07), so concurrent
+    Firings in the same Workspace are serialized. ``lease_timeout`` bounds the wait
+    (None = wait indefinitely).
+    """
     adapter = adapter or get_adapter(loop.agent)
     run_id = store.create_run(
         loop_name=loop.name,
@@ -28,7 +40,15 @@ def run_firing(loop: Loop, store: Store, adapter: Adapter | None = None) -> RunR
     log_path = store.log_path_for(run_id)
     result_path = store.result_path_for(run_id)
 
-    status, exit_code = _spawn_and_capture(loop, adapter, log_path, result_path)
+    try:
+        with workspace_lease(store, str(loop.workspace), run_id, timeout=lease_timeout):
+            status, exit_code = _spawn_and_capture(loop, adapter, log_path, result_path)
+    except LeaseTimeout:
+        log_path.write_text(
+            f"[loopr] could not acquire workspace lease: {loop.workspace}\n"
+        )
+        status, exit_code = STATUS_ERROR, None
+
     result = parse_result(result_path)
     store.complete_run(
         run_id,
