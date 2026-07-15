@@ -179,8 +179,8 @@ the server by name in the mission instead.
 
 ## Example: paper deep review
 
-The parent monorepo's [`loopr.yaml`](../loopr.yaml) wires a two-loop chain for curating ML
-papers in `./relational`:
+A two-loop chain for curating ML papers in a git workspace (`./relational`). The radar
+stages papers weekly; deep review runs on handoff (or manually for testing).
 
 | Loop | Schedule | Role |
 | --- | --- | --- |
@@ -190,6 +190,98 @@ papers in `./relational`:
 When the radar returns `{"status":"staged",...}`, Loopr automatically fires
 `paper-deep-review` with that Result as context. Both Loops share workspace `./relational`,
 so the per-workspace **Lease** serializes them.
+
+### `loopr.yaml`
+
+```yaml
+loops:
+  # arXiv MCP comes from global ~/.cursor/mcp.json — NOT declared as a capability
+  # (that would write a tracked .cursor/mcp.json into the workspace).
+  - name: tabular-paper-radar
+    workspace: ./relational
+    agent: cursor
+    model: claude-opus-4-8-thinking-high
+    schedule: "0 9 * * 0"      # every Sunday 09:00 local
+    mission: |
+      You curate a staging list of papers for this ML teaching repo. Do not ask
+      questions — make reasonable decisions and finish autonomously.
+
+      Focus on these THREE closely-related threads:
+      1. TABULAR MODELS & FOUNDATIONAL / TABULAR-FOUNDATION MODELS: deep learning for
+         tabular data, tree ensembles vs. neural nets, TabPFN and other tabular foundation
+         models, in-context learning over tables, and tabular benchmarks.
+      2. RELATIONAL DEEP LEARNING (RDL): learning directly over multi-table relational
+         databases — deep models across primary/foreign-key-linked tables, relational
+         foundation models, and benchmarks such as RelBench.
+      3. RELATIONAL GRAPH DEEP LEARNING: GNNs / graph representation learning applied to
+         the schema-and-rows graph induced by a relational database (heterogeneous /
+         temporal graphs from linked tables), plus message-passing and graph-transformer
+         methods for that setting.
+      A paper is in scope if it clearly fits ANY of the three threads. Skip work that is
+      only tangentially related (e.g. generic tabular ML on a single flat table with no
+      relational/graph angle is thread 1 only; pure NLP/vision GNNs are out of scope).
+
+      1. Read ./CURRICULUM_STAGE.md if it exists (create it with a "# Curriculum staging
+         — candidate papers" header if not) and CURRICULUM.md, so you know what is
+         ALREADY staged or taught.
+      2. Use the `arxiv-local` MCP server tools to find recent papers across all three
+         threads (roughly the last 2 weeks): run separate `search_papers` queries per
+         thread (categories like cs.LG/stat.ML for tabular & RDL, plus cs.DB for relational
+         databases and cs.SI for graph/relational-graph work; date_from/date_to,
+         sort_by=submittedDate), then `get_abstract`/`read_paper` to confirm relevance.
+         Prefer reproducible, novel, or notable work.
+      3. Select ONLY papers not already in CURRICULUM_STAGE.md (dedupe by arXiv id and by
+         title). If there are none, stop WITHOUT changing any files.
+      4. Append each new paper to ./CURRICULUM_STAGE.md as a bullet, newest at the bottom.
+         Tag which thread it belongs to (tabular | RDL | relational-graph):
+         - [<title>](https://arxiv.org/abs/<id>) — <authors, year>. [<thread>] <1-2
+           sentences on why it matters for the curriculum>. (staged <YYYY-MM-DD>)
+      5. Only if you added something, commit and push:
+         git add CURRICULUM_STAGE.md && git commit -m "Stage N paper(s)" &&
+         git push origin HEAD
+      6. Write your outcome to $LOOPR_RESULT_PATH:
+         {"status":"staged","summary":"Staged N paper(s): <short titles>",
+          "artifacts":[{"type":"file","url":"CURRICULUM_STAGE.md"}]}
+         If nothing new: {"status":"none","summary":"no new papers this week"}.
+         Use "status":"issues" and explain if something went wrong (e.g. arXiv/MCP error).
+    handoffs:
+      - when: 'result.status == "staged"'
+        trigger: paper-deep-review
+      - when: 'result.status == "issues"'
+        notify: cli
+
+  - name: paper-deep-review
+    workspace: ./relational     # same workspace -> Lease serializes with the radar
+    agent: cursor
+    model: claude-opus-4-8-thinking-high
+    # no schedule: fires on handoff from the radar, or run manually to test
+    mission: |
+      You write concise review briefs for EVERY staged paper that has not been reviewed
+      yet, committing them to main. Do not ask questions — make reasonable decisions and
+      finish autonomously.
+
+      1. Read ./CURRICULUM_STAGE.md and list every staged paper (arXiv id + title).
+      2. A paper counts as reviewed iff ./reviews/<arxiv_id>.md already exists. Build the
+         list of papers with NO such file. If that list is empty, write
+         {"status":"none","summary":"nothing to review"} and STOP without changes.
+      3. For EACH un-reviewed paper, in staging order:
+         a. Use the `arxiv-local` MCP tools (`download_paper` then `read_paper`, or
+            `get_abstract` as a fallback) to read it.
+         b. Write ./reviews/<arxiv_id>.md (~1 page): problem, method, key results/numbers,
+            how it fits the tabular curriculum, and caveats/limitations. Link the abstract.
+      4. Commit all new reviews together and push to main:
+         git add reviews/ && git commit -m "Review N staged paper(s)" &&
+         git push origin HEAD
+      5. Write $LOOPR_RESULT_PATH:
+         {"status":"ok","summary":"Reviewed N paper(s): <short ids/titles>",
+          "artifacts":[{"type":"file","url":"reviews/"}]}
+         Use "status":"issues" with an explanation if you could not.
+    handoffs:
+      - when: 'result.status == "ok"'
+        notify: cli
+      - when: 'result.status == "issues"'
+        notify: cli
+```
 
 ### What is configured for these Loops
 
@@ -207,7 +299,7 @@ The paper Loops use these `arxiv-local` tools: `search_papers`, `get_abstract`,
 
 ### Run deep review manually
 
-From the directory that contains `loopr.yaml` (the monorepo root):
+From the directory that contains `loopr.yaml`:
 
 ```bash
 export CURSOR_API_KEY="crsr_..."    # if not already in the environment
