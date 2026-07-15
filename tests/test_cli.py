@@ -96,3 +96,43 @@ def test_runs_empty(tmp_path: Path, monkeypatch):
     result = runner.invoke(app, ["runs"])
     assert result.exit_code == 0
     assert "no runs yet" in result.output
+
+
+def scheduled_config(tmp_path: Path) -> Path:
+    ws = tmp_path / "ws"
+    ws.mkdir(exist_ok=True)
+    cfg = tmp_path / "loopr.yaml"
+    cfg.write_text(
+        f"""
+loops:
+  - name: mon
+    mission: check
+    workspace: {ws}
+    agent: cursor
+    schedule: "every 5m"
+"""
+    )
+    return cfg
+
+
+def test_daemon_status_not_running(tmp_path: Path, monkeypatch):
+    for k, v in base_env(tmp_path).items():
+        monkeypatch.setenv(k, v)
+    cfg = scheduled_config(tmp_path)
+
+    result = runner.invoke(app, ["daemon", "status", "--config", str(cfg)])
+    assert result.exit_code == 0
+    assert "not running" in result.output
+    assert "mon" in result.output  # listed under next firings
+
+
+def test_daemon_install_writes_unit(tmp_path: Path, monkeypatch):
+    for k, v in base_env(tmp_path).items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setenv("HOME", str(tmp_path / "fakehome"))
+    cfg = scheduled_config(tmp_path)
+
+    result = runner.invoke(app, ["daemon", "install", "--config", str(cfg)])
+    assert result.exit_code == 0
+    assert "unit:" in result.output
+    assert "enable with" in result.output

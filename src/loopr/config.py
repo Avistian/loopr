@@ -12,6 +12,8 @@ from pathlib import Path
 
 import yaml
 
+from .schedule import ScheduleError, parse_schedule
+
 DEFAULT_AGENT = "cursor"
 DEFAULT_CONFIG_NAME = "loopr.yaml"
 
@@ -56,6 +58,7 @@ class Loop:
     workspace: Path
     agent: str = DEFAULT_AGENT
     capabilities: tuple[Capability, ...] = ()
+    schedule: str | None = None
 
 
 @dataclass(frozen=True)
@@ -145,12 +148,22 @@ def _parse_loop(entry: object, *, index: int, base: Path, source: Path) -> Loop:
         for i, cap in enumerate(raw_caps)
     )
 
+    schedule = entry.get("schedule")
+    if schedule is not None:
+        if not isinstance(schedule, str):
+            raise ConfigError(f"{where} ({name}): 'schedule' must be a string")
+        try:
+            parse_schedule(schedule)
+        except ScheduleError as exc:
+            raise ConfigError(f"{where} ({name}): {exc}") from exc
+
     return Loop(
         name=name,
         mission=mission,
         workspace=workspace_path,
         agent=agent,
         capabilities=capabilities,
+        schedule=schedule,
     )
 
 

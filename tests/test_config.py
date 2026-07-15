@@ -176,6 +176,35 @@ def test_unknown_capability_type_errors(tmp_path: Path):
         load_config(path)
 
 
+def test_valid_schedule_parsed(tmp_path: Path):
+    path = write_config(
+        tmp_path,
+        """
+        loops:
+          - name: a
+            mission: m
+            workspace: .
+            schedule: "every 5m"
+        """,
+    )
+    assert load_config(path).get_loop("a").schedule == "every 5m"
+
+
+def test_invalid_schedule_is_error(tmp_path: Path):
+    path = write_config(
+        tmp_path,
+        """
+        loops:
+          - name: a
+            mission: m
+            workspace: .
+            schedule: "not a schedule"
+        """,
+    )
+    with pytest.raises(ConfigError, match="valid interval or cron"):
+        load_config(path)
+
+
 def test_missing_file_is_error(tmp_path: Path):
     with pytest.raises(ConfigError, match="not found"):
         load_config(tmp_path / "nope.yaml")

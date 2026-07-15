@@ -1,6 +1,6 @@
 # 02 — Scheduled firing via the daemon
 
-Status: ready-for-agent
+Status: done
 
 ## What to build
 
