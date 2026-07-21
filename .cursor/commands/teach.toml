@@ -1,0 +1,14 @@
+description = "Teach a skill or concept over multiple sessions in this workspace"
+argument-hint = "What would you like to learn about?"
+
+prompt = """
+Invoke the teach skill.
+
+This directory is a stateful teaching workspace. Before teaching:
+
+1. Read MISSION.md for the learner's goal
+2. Read learning-records/ for what they already know
+3. Read NOTES.md for preferences
+
+Then continue the next lesson in their zone of proximal development, or interview them if the mission is not yet established.
+"""
