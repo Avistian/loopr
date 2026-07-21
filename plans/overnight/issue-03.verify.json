@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "name": "issue-03-desktop-toast-channel",
+  "output_dir": "artifacts/capability-verify/issue-03",
+  "capabilities": [
+    {
+      "id": "desktop-notification-channel",
+      "description": "desktop is a known Notification channel with injectable toast runner; config accepts on_auth_defer.notify: desktop",
+      "exercise": {
+        "hints": [
+          "Run: uv run pytest -m 'not e2e' -k 'notify or config' -q",
+          "Confirm desktop in known_channels() and toast injection tests",
+          "Confirm powershell.exe argv helper is unit-tested with mocked subprocess",
+          "Save pytest output under artifacts/capability-verify/issue-03/"
+        ],
+        "tools_allowed": ["shell", "read files"]
+      },
+      "acceptance": [
+        "desktop is selectable via notify / on_auth_defer.notify",
+        "Unit tests pass without showing a real Windows toast",
+        "Default toast path targets Windows host (powershell.exe), not notify-send alone"
+      ]
+    }
+  ]
+}

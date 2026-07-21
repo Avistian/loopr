@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "name": "issue-01-global-mcp-authorize",
+  "output_dir": "artifacts/capability-verify/issue-01",
+  "capabilities": [
+    {
+      "id": "global-mcp-config-and-authorize",
+      "description": "Loop can declare MCP by name only with on_auth_defer; provision authorizes without writing Workspace mcp.json; firing proceeds when FakeAdapter authorize succeeds",
+      "exercise": {
+        "hints": [
+          "Run: uv run pytest -m 'not e2e' -k 'config or provision or adapter or firing' -q",
+          "Inspect tests for McpCapability without server, on_auth_defer.notify required, and authorize_mcp on adapters",
+          "Confirm provision path skips .cursor/mcp.json write when server is None",
+          "Save pytest output under artifacts/capability-verify/issue-01/"
+        ],
+        "tools_allowed": ["shell", "read files"]
+      },
+      "acceptance": [
+        "Unit suite relevant to config/provision/adapters/firing passes",
+        "Evidence shows omit-server MCP does not require Workspace mcp.json write in tests",
+        "authorize_mcp exists on Adapter protocol; Command no-op and Cursor happy-path covered",
+        "No unhandled exceptions in captured pytest output"
+      ]
+    }
+  ]
+}

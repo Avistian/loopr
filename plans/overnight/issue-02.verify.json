@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "name": "issue-02-auth-defer-skip-notify",
+  "output_dir": "artifacts/capability-verify/issue-02",
+  "capabilities": [
+    {
+      "id": "auth-defer-skip-and-notify",
+      "description": "Authorize failure skips agent spawn, records error, notifies on_auth_defer channel; loopr provision exercises same authorize path",
+      "exercise": {
+        "hints": [
+          "Run: uv run pytest -m 'not e2e' -q",
+          "Confirm tests cover FakeAdapter authorize fail → STATUS_ERROR, notifier called, agent not spawned",
+          "Confirm Cursor adapter timeout/not-ready with stub runner",
+          "Confirm loopr provision CLI exists and is tested",
+          "Save pytest + relevant CLI help/test output under artifacts/capability-verify/issue-02/"
+        ],
+        "tools_allowed": ["shell", "read files"]
+      },
+      "acceptance": [
+        "Full unit suite (not e2e) passes",
+        "Evidence that auth-defer notifies and skips without pause/resume state",
+        "Evidence that tool-missing failures do not trigger auth-defer notify",
+        "loopr provision path is present and tested"
+      ]
+    }
+  ]
+}

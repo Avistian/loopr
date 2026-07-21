@@ -46,9 +46,12 @@ Loops emerge from Handoffs; there is no separate pipeline object.
 _Avoid_: routing, dispatch, handback
 
 **Notification**:
-The delivery of a Result (summary + links to the Log and any Artifacts) to a human via
-a channel (CLI, Slack, etc.). A human Handoff is realized as a Notification and
-terminates the chain. Loopr never blocks waiting on a human.
+The delivery of a message to a human via a channel (desktop popup, email, CLI, Slack,
+etc.) — typically a Result (summary + links to the Log and any Artifacts), but also
+Provisioning outcomes that skip a Firing (e.g. an MCP server not yet authorized). A
+human Handoff is realized as a Notification and terminates the chain. Loopr never
+blocks waiting on a human. The channel is configurable; CLI alone is not assumed
+visible for a daemon.
 _Avoid_: alert, message, report
 
 **Artifact**:
@@ -59,10 +62,11 @@ _Avoid_: output, deliverable, product
 
 **Provisioning**:
 The idempotent step run before each Firing that ensures the Loop's declared
-Capabilities are present in the Workspace — materializing Skill files, merging MCP
-config, and verifying required tools are on PATH (warn/fail if missing; optional
-user-supplied install command). A no-op when a Capability is already present, so
-Loops sharing a Workspace never conflict.
+Capabilities are ready for that Firing — materializing Skill files, merging MCP
+config when the Loop owns the entry, authorizing each required MCP server so the
+agent can use it without permission errors, and verifying required tools are on
+PATH (warn/fail if missing; optional user-supplied install command). A no-op when
+a Capability is already ready, so Loops sharing a Workspace never conflict.
 _Avoid_: setup, install, bootstrap
 
 **Lease**:
@@ -74,8 +78,9 @@ _Avoid_: lock, mutex, semaphore
 **Adapter**:
 The per-agent plug-in that knows how to invoke one agent CLI (cursor now, claude/codex
 later) headlessly — building its command, injecting the Mission and provisioned
-Capabilities, and obtaining the structured Result. A Loop names its agent; supporting a
-new agent means adding an Adapter.
+Capabilities, authorizing MCP Capabilities for that agent when required, and obtaining
+the structured Result. A Loop names its agent; supporting a new agent means adding an
+Adapter (including how that agent authorizes MCP servers, if it has MCP).
 _Avoid_: driver, backend, provider, plugin
 
 **Mission**:
@@ -86,8 +91,10 @@ _Avoid_: prompt, task, goal
 
 **Capability**:
 A typed requirement a Loop declares so its agent can perform the Mission. Three kinds:
-a Skill, an MCP server, or a tool/binary. Loopr's provisioning ensures declared
-Capabilities are present in the environment before a Handoff.
+a Skill, an MCP server, or a tool/binary. An MCP Capability names a server the Loop
+needs usable (configured and authorized); its config may already live globally, in
+which case Provisioning authorizes without writing Workspace MCP config. Loopr's
+Provisioning ensures declared Capabilities are ready before a Firing.
 _Avoid_: dependency, resource, requirement
 
 **Skill**:

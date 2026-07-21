@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "issue-04-wire-paper-loops",
+  "output_dir": "artifacts/capability-verify/issue-04",
+  "capabilities": [
+    {
+      "id": "paper-loops-global-arxiv",
+      "description": "tabular-paper-radar and paper-deep-review declare global arxiv-local MCP with on_auth_defer.notify: desktop; docs/comments match",
+      "exercise": {
+        "hints": [
+          "Inspect operator loopr.yaml (Projects root) for both Loops",
+          "Confirm capabilities type mcp name arxiv-local without server, plus on_auth_defer.notify: desktop",
+          "Confirm README / stale comments updated",
+          "Run: uv run pytest -m 'not e2e' -q",
+          "Document manual toast check status if performed; do not fail CI for missing real toast",
+          "Save evidence under artifacts/capability-verify/issue-04/"
+        ],
+        "tools_allowed": ["shell", "read files"]
+      },
+      "acceptance": [
+        "Both Loops declare global arxiv-local + desktop on_auth_defer",
+        "Stale omit-MCP comments are gone or updated",
+        "Unit suite (not e2e) still passes",
+        "Manual check noted as done, skipped, or blocked with reason"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "name": "mcp-authorize-provisioning-all",
+  "output_dir": "artifacts/capability-verify/mcp-authorize-all",
+  "capabilities": [
+    {
+      "id": "global-mcp-authorize-happy-path",
+      "description": "MCP may omit server; provision authorizes without Workspace mcp.json write; firing proceeds when authorize ok",
+      "exercise": {
+        "hints": [
+          "Run: uv run pytest -m 'not e2e' -q",
+          "Inspect config/provision/adapter/firing tests for omit-server + authorize_mcp",
+          "Save evidence under artifacts/capability-verify/mcp-authorize-all/"
+        ],
+        "tools_allowed": ["shell", "read files"]
+      },
+      "acceptance": [
+        "Unit suite passes",
+        "Evidence of global MCP non-write + authorize hook + firing happy path"
+      ]
+    },
+    {
+      "id": "auth-defer-skip-notify",
+      "description": "Authorize failure skips spawn, notifies on_auth_defer, loopr provision shares authorize path",
+      "exercise": {
+        "hints": [
+          "Confirm FakeAdapter fail → STATUS_ERROR + notifier; Cursor timeout/not-ready stubbed",
+          "Confirm loopr provision CLI tested",
+          "Confirm tool-missing does not auth-defer notify"
+        ],
+        "tools_allowed": ["shell", "read files"]
+      },
+      "acceptance": [
+        "Skip + notify path proven in tests",
+        "No pause/resume auth-waiting state introduced",
+        "loopr provision exists and is tested"
+      ]
+    },
+    {
+      "id": "desktop-channel-and-paper-loops",
+      "description": "desktop channel registered; paper Loops use global arxiv-local + on_auth_defer.notify desktop",
+      "exercise": {
+        "hints": [
+          "Confirm desktop in known_channels and injectable toast tests",
+          "Inspect operator loopr.yaml for tabular-paper-radar and paper-deep-review",
+          "Note manual toast check status if any"
+        ],
+        "tools_allowed": ["shell", "read files"]
+      },
+      "acceptance": [
+        "desktop channel selectable and unit-tested without real toast",
+        "Both paper Loops declare global arxiv-local + desktop notify",
+        "README/comments match the new model"
+      ]
+    }
+  ]
+}
