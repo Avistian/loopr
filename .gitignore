@@ -15,3 +15,6 @@ build/
 
 # Loopr local state (SQLite, logs)
 .loopr/
+
+# flow overnight / capability-verify / no-mistakes outputs
+artifacts/
